@@ -19,9 +19,13 @@ package com.hazelcast.jet.impl.operation;
 import com.hazelcast.jet.impl.JetService;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
+import com.hazelcast.spi.ExceptionAction;
 import com.hazelcast.spi.Operation;
 
 import java.io.IOException;
+
+import static com.hazelcast.jet.impl.util.ExceptionUtil.isJobRestartRequired;
+import static com.hazelcast.spi.ExceptionAction.THROW_EXCEPTION;
 
 public abstract class AsyncExecutionOperation extends Operation {
 
@@ -75,6 +79,11 @@ public abstract class AsyncExecutionOperation extends Operation {
             final JetService service = getService();
             service.getLiveOperationRegistry().deregister(this);
         }
+    }
+
+    @Override
+    public ExceptionAction onInvocationException(Throwable throwable) {
+        return isJobRestartRequired(throwable) ? THROW_EXCEPTION : super.onInvocationException(throwable);
     }
 
     @Override

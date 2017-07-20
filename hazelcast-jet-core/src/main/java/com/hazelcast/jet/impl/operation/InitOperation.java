@@ -26,7 +26,6 @@ import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.spi.ExceptionAction;
 import com.hazelcast.spi.Operation;
-import com.hazelcast.spi.exception.TargetNotMemberException;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -34,6 +33,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 import static com.hazelcast.jet.impl.execution.init.CustomClassLoadedObject.deserializeWithCustomClassLoader;
+import static com.hazelcast.jet.impl.util.ExceptionUtil.isJobRestartRequired;
 import static com.hazelcast.spi.ExceptionAction.THROW_EXCEPTION;
 
 public class InitOperation extends Operation {
@@ -73,11 +73,7 @@ public class InitOperation extends Operation {
 
     @Override
     public ExceptionAction onInvocationException(Throwable throwable) {
-        if (throwable instanceof TargetNotMemberException) {
-            return THROW_EXCEPTION;
-        }
-
-        return super.onInvocationException(throwable);
+        return isJobRestartRequired(throwable) ? THROW_EXCEPTION : super.onInvocationException(throwable);
     }
 
     @Override

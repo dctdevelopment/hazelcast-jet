@@ -20,13 +20,9 @@ import com.hazelcast.jet.impl.JetService;
 import com.hazelcast.logging.ILogger;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
-import com.hazelcast.spi.ExceptionAction;
-import com.hazelcast.spi.exception.TargetNotMemberException;
 
 import java.io.IOException;
 import java.util.concurrent.CompletionStage;
-
-import static com.hazelcast.spi.ExceptionAction.THROW_EXCEPTION;
 
 public class ExecuteOperation extends AsyncExecutionOperation {
 
@@ -61,15 +57,6 @@ public class ExecuteOperation extends AsyncExecutionOperation {
 
                     doSendResponse(value);
                 }));
-    }
-
-    @Override
-    public ExceptionAction onInvocationException(Throwable throwable) {
-        if (throwable instanceof TargetNotMemberException) {
-            return THROW_EXCEPTION;
-        }
-
-        return super.onInvocationException(throwable);
     }
 
     @Override

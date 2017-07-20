@@ -17,7 +17,6 @@
 package com.hazelcast.jet.impl.execution;
 
 import com.hazelcast.core.ExecutionCallback;
-import com.hazelcast.core.MemberLeftException;
 import com.hazelcast.internal.cluster.MemberInfo;
 import com.hazelcast.internal.cluster.impl.ClusterServiceImpl;
 import com.hazelcast.internal.cluster.impl.MembersView;
@@ -33,8 +32,6 @@ import com.hazelcast.jet.impl.util.ExceptionUtil;
 import com.hazelcast.logging.ILogger;
 import com.hazelcast.spi.InternalCompletableFuture;
 import com.hazelcast.spi.Operation;
-import com.hazelcast.spi.exception.CallerNotMemberException;
-import com.hazelcast.spi.exception.TargetNotMemberException;
 import com.hazelcast.spi.impl.NodeEngineImpl;
 
 import java.util.*;
@@ -48,6 +45,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static com.hazelcast.jet.JobStatus.*;
+import static com.hazelcast.jet.impl.util.ExceptionUtil.isJobRestartRequired;
 import static com.hazelcast.jet.impl.util.ExceptionUtil.peel;
 import static java.util.stream.Collectors.partitioningBy;
 import static java.util.stream.Collectors.toList;
@@ -191,7 +189,7 @@ public class MasterContext {
         return failures
                 .stream()
                 .map(e -> (Throwable) e.getValue())
-                .filter(t -> !isTopologyChangeFailure(t))
+                .filter(t -> !isJobRestartRequiredFailure(t))
                 .findFirst()
                 .map(ExceptionUtil::peel)
                 .orElse(new TopologyChangedException());
@@ -204,10 +202,8 @@ public class MasterContext {
                     .collect(partitioningBy(e -> e.getValue() instanceof Throwable));
     }
 
-    private boolean isTopologyChangeFailure(Object response) {
-        return response instanceof MemberLeftException
-                || response instanceof TargetNotMemberException
-                || response instanceof CallerNotMemberException;
+    private boolean isJobRestartRequiredFailure(Object response) {
+        return response instanceof Throwable && isJobRestartRequired((Throwable) response);
     }
 
     private void invokeExecute() {
@@ -248,7 +244,7 @@ public class MasterContext {
         return failures
                 .stream()
                 .map(e -> (Throwable) e.getValue())
-                .filter(t -> !(t instanceof CancellationException || isTopologyChangeFailure(t)))
+                .filter(t -> !(t instanceof CancellationException || isJobRestartRequiredFailure(t)))
                 .findFirst()
                 .map(ExceptionUtil::peel)
                 .orElse(new TopologyChangedException());
