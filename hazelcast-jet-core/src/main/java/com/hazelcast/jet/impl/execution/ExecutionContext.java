@@ -30,18 +30,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
-import static com.hazelcast.jet.impl.util.Util.getRemoteMembers;
-import static java.util.Collections.emptyList;
-import static java.util.Collections.emptyMap;
-import static java.util.Collections.emptySet;
-import static java.util.Collections.unmodifiableList;
-import static java.util.Collections.unmodifiableMap;
-import static java.util.Collections.unmodifiableSet;
+import static java.util.Collections.*;
 
 public class ExecutionContext {
+
+    private final long jobId;
+    private final long executionId;
+    private final Address coordinator;
+    private final Set<Address> participants;
+    private final Lock executionLock = new ReentrantLock();
 
     // dest vertex id --> dest ordinal --> sender addr --> receiver tasklet
     private Map<Integer, Map<Integer, Map<Address, ReceiverTasklet>>> receiverMap = emptyMap();
@@ -52,22 +55,24 @@ public class ExecutionContext {
     private List<ProcessorSupplier> procSuppliers = emptyList();
     private List<Processor> processors = emptyList();
 
-    private Set<Address> participatingMembers = emptySet();
+
     private List<Tasklet> tasklets;
     private CompletionStage<Void> jobFuture;
 
-    private final long executionId;
     private final NodeEngine nodeEngine;
     private final ExecutionService execService;
 
-    public ExecutionContext(long executionId, NodeEngine nodeEngine, ExecutionService execService) {
+    public ExecutionContext(NodeEngine nodeEngine, ExecutionService execService,
+                            long jobId, long executionId, Address coordinator, Set<Address> participants) {
+        this.jobId = jobId;
         this.executionId = executionId;
+        this.coordinator = coordinator;
+        this.participants = new HashSet<>(participants);
         this.execService = execService;
         this.nodeEngine = nodeEngine;
     }
 
     public ExecutionContext initialize(ExecutionPlan plan) {
-        this.participatingMembers = unmodifiableSet(new HashSet<>(getRemoteMembers(nodeEngine)));
         // Must be populated early, so all processor suppliers are
         // available to be completed in the case of init failure
         procSuppliers = unmodifiableList(plan.getProcessorSuppliers());
@@ -80,15 +85,46 @@ public class ExecutionContext {
     }
 
     public CompletionStage<Void> execute(Consumer<CompletionStage<Void>> doneCallback) {
-        JetService service = nodeEngine.getService(JetService.SERVICE_NAME);
-        ClassLoader cl = service.getClassLoader(executionId);
-        jobFuture = execService.execute(tasklets, doneCallback, cl);
-        jobFuture.whenComplete((r, e) -> tasklets.clear());
-        return jobFuture;
+        executionLock.lock();
+        try {
+            if (jobFuture != null) {
+                jobFuture.whenComplete((r, e) -> doneCallback.accept(jobFuture));
+            } else {
+                JetService service = nodeEngine.getService(JetService.SERVICE_NAME);
+                ClassLoader cl = service.getClassLoader(jobId);
+                jobFuture = execService.execute(tasklets, doneCallback, cl);
+                jobFuture.whenComplete((r, e) -> tasklets.clear());
+            }
+
+            return jobFuture;
+        } finally {
+            executionLock.unlock();
+        }
     }
 
-    public CompletionStage<Void> getJobFuture() {
-        return jobFuture;
+    public CompletionStage<Void> cancel() {
+        executionLock.lock();
+        try {
+            if (jobFuture == null) {
+                jobFuture = new CompletableFuture<>();
+            }
+
+            if (!jobFuture.toCompletableFuture().isCancelled()) {
+                jobFuture.toCompletableFuture().cancel(true);
+            }
+
+            return jobFuture;
+        } finally {
+            executionLock.unlock();
+        }
+    }
+
+    public long getJobId() {
+        return jobId;
+    }
+
+    public long getExecutionId() {
+        return executionId;
     }
 
     public Map<Integer, Map<Integer, Map<Address, SenderTasklet>>> senderMap() {
@@ -97,6 +133,10 @@ public class ExecutionContext {
 
     public Map<Integer, Map<Integer, Map<Address, ReceiverTasklet>>> receiverMap() {
         return receiverMap;
+    }
+
+    public boolean verify(Address coordinator, long jobId) {
+        return this.coordinator.equals(coordinator) && this.jobId == jobId;
     }
 
     public void complete(Throwable error) {
@@ -113,6 +153,15 @@ public class ExecutionContext {
     }
 
     public boolean isParticipating(Address member) {
-        return participatingMembers != null && participatingMembers.contains(member);
+        return participants.contains(member);
     }
+
+    public Address getCoordinator() {
+        return coordinator;
+    }
+
+    public boolean isCoordinatorOrParticipating(Address member) {
+        return coordinator.equals(member) || isParticipating(member);
+    }
+
 }

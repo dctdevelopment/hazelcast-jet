@@ -25,22 +25,22 @@ import java.io.IOException;
 
 public abstract class AsyncExecutionOperation extends Operation {
 
-    protected long executionId;
+    protected long jobId;
 
     protected AsyncExecutionOperation() {
     }
 
-    protected AsyncExecutionOperation(long executionId) {
-        this.executionId = executionId;
+    protected AsyncExecutionOperation(long jobId) {
+        this.jobId = jobId;
     }
 
     @Override
-    public boolean returnsResponse() {
+    public final boolean returnsResponse() {
         return false;
     }
 
     @Override
-    public Object getResponse() {
+    public final Object getResponse() {
         throw new UnsupportedOperationException();
     }
 
@@ -64,11 +64,11 @@ public abstract class AsyncExecutionOperation extends Operation {
 
     protected abstract void doRun() throws Exception;
 
-    public long getExecutionId() {
-        return executionId;
+    public long getJobId() {
+        return jobId;
     }
 
-    protected final void doSendResponse(Object value) {
+    public final void doSendResponse(Object value) {
         try {
             sendResponse(value);
         } finally {
@@ -80,12 +80,12 @@ public abstract class AsyncExecutionOperation extends Operation {
     @Override
     protected void writeInternal(ObjectDataOutput out) throws IOException {
         super.writeInternal(out);
-        out.writeLong(executionId);
+        out.writeLong(jobId);
     }
 
     @Override
     protected void readInternal(ObjectDataInput in) throws IOException {
         super.readInternal(in);
-        executionId = in.readLong();
+        jobId = in.readLong();
     }
 }

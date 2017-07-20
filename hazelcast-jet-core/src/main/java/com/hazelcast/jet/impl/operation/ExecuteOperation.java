@@ -17,19 +17,59 @@
 package com.hazelcast.jet.impl.operation;
 
 import com.hazelcast.jet.impl.JetService;
+import com.hazelcast.logging.ILogger;
+import com.hazelcast.nio.ObjectDataInput;
+import com.hazelcast.nio.ObjectDataOutput;
+import com.hazelcast.spi.ExceptionAction;
+import com.hazelcast.spi.exception.TargetNotMemberException;
 
+import java.io.IOException;
 import java.util.concurrent.CompletionStage;
 
-class ExecuteOperation extends AsyncExecutionOperation {
+import static com.hazelcast.spi.ExceptionAction.THROW_EXCEPTION;
+
+public class ExecuteOperation extends AsyncExecutionOperation {
 
     private volatile CompletionStage<Void> executionFuture;
 
-    ExecuteOperation(long executionId) {
-        super(executionId);
+    private long executionId;
+
+    public ExecuteOperation(long jobId, long executionId) {
+        super(jobId);
+        this.executionId = executionId;
     }
 
     private ExecuteOperation() {
         // for deserialization
+    }
+
+    @Override
+    protected void doRun() throws Exception {
+        ILogger logger = getLogger();
+        JetService service = getService();
+        logger.info("Start execution of job " + jobId + " execution  " + executionId
+                + " from caller " + getCallerAddress() + '.');
+
+        executionFuture = service.execute(getCallerAddress(), jobId, executionId, f -> f.handle((r, error) -> error)
+                .thenAccept((value) -> {
+                    if (value != null) {
+                        logger.fine("Execution of job " + jobId + " execution " + executionId
+                                + " completed with failure.", value);
+                    } else {
+                        logger.fine("Execution of job " + jobId + " execution " + executionId + " completed.");
+                    }
+
+                    doSendResponse(value);
+                }));
+    }
+
+    @Override
+    public ExceptionAction onInvocationException(Throwable throwable) {
+        if (throwable instanceof TargetNotMemberException) {
+            return THROW_EXCEPTION;
+        }
+
+        return super.onInvocationException(throwable);
     }
 
     @Override
@@ -40,15 +80,14 @@ class ExecuteOperation extends AsyncExecutionOperation {
     }
 
     @Override
-    protected void doRun() throws Exception {
-        JetService service = getService();
-        getLogger().info("Start execution of plan for job " + executionId + " from caller " + getCallerAddress() + '.');
-        executionFuture = service
-                .getExecutionContext(executionId)
-                .execute(f -> f.handle((r, error) -> error != null ? error : null)
-                               .thenAccept((value) -> {
-                                   getLogger().fine("Execution of plan for job " + executionId + " completed.");
-                                   doSendResponse(value);
-                               }));
+    protected void writeInternal(ObjectDataOutput out) throws IOException {
+        super.writeInternal(out);
+        out.writeLong(executionId);
+    }
+
+    @Override
+    protected void readInternal(ObjectDataInput in) throws IOException {
+        super.readInternal(in);
+        executionId = in.readLong();
     }
 }

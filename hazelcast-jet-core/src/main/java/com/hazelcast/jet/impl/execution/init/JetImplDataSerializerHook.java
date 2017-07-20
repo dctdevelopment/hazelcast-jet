@@ -18,6 +18,10 @@ package com.hazelcast.jet.impl.execution.init;
 
 import com.hazelcast.internal.serialization.DataSerializerHook;
 import com.hazelcast.internal.serialization.impl.FactoryIdHelper;
+import com.hazelcast.jet.impl.JobResultRepository.NonMemberCoordinatorPredicate;
+import com.hazelcast.jet.impl.execution.JobResult;
+import com.hazelcast.jet.impl.execution.JobResult.JobResultKey;
+import com.hazelcast.jet.impl.execution.StartableJob;
 import com.hazelcast.nio.serialization.DataSerializableFactory;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 
@@ -29,6 +33,10 @@ public final class JetImplDataSerializerHook implements DataSerializerHook {
     public static final int EXECUTION_PLAN = 0;
     public static final int VERTEX_DEF = 1;
     public static final int EDGE_DEF = 2;
+    public static final int STARTABLE_JOB = 3;
+    public static final int JOB_RESULT = 4;
+    public static final int JOB_RESULT_KEY = 5;
+    public static final int NON_MEMBER_COORDINATOR_PREDICATE = 6;
     public static final int FACTORY_ID = FactoryIdHelper.getFactoryId(JET_IMPL_DS_FACTORY, JET_IMPL_DS_FACTORY_ID);
 
 
@@ -52,6 +60,14 @@ public final class JetImplDataSerializerHook implements DataSerializerHook {
                     return new EdgeDef();
                 case VERTEX_DEF:
                     return new VertexDef();
+                case STARTABLE_JOB:
+                    return new StartableJob();
+                case JOB_RESULT:
+                    return new JobResult();
+                case JOB_RESULT_KEY:
+                    return new JobResultKey();
+                case NON_MEMBER_COORDINATOR_PREDICATE:
+                    return new NonMemberCoordinatorPredicate();
                 default:
                     throw new IllegalArgumentException("Unknown type id " + typeId);
             }

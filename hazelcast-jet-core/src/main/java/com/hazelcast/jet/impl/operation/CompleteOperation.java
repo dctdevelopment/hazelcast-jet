@@ -17,18 +17,26 @@
 package com.hazelcast.jet.impl.operation;
 
 import com.hazelcast.jet.impl.JetService;
+import com.hazelcast.logging.ILogger;
+import com.hazelcast.nio.Address;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
+import com.hazelcast.spi.ExceptionAction;
 import com.hazelcast.spi.Operation;
+import com.hazelcast.spi.exception.TargetNotMemberException;
 
 import java.io.IOException;
 
-class CompleteOperation extends Operation {
+import static com.hazelcast.spi.ExceptionAction.THROW_EXCEPTION;
 
+public class CompleteOperation extends Operation {
+
+    private long jobId;
     private long executionId;
     private Throwable error;
 
-    CompleteOperation(long executionId, Throwable error) {
+    public CompleteOperation(long jobId, long executionId, Throwable error) {
+        this.jobId = jobId;
         this.executionId = executionId;
         this.error = error;
     }
@@ -39,16 +47,36 @@ class CompleteOperation extends Operation {
 
     @Override
     public void run() throws Exception {
-        getLogger().fine("Completing execution of plan for job " + executionId + ".");
+        ILogger logger = getLogger();
         JetService service = getService();
+
+        Address callerAddress = getCallerAddress();
+        logger.fine("Completing execution of plan for job " + jobId + " execution " + executionId
+                + " from caller: " + callerAddress + " with " + error);
+
+        Address masterAddress = getNodeEngine().getMasterAddress();
+        if (!masterAddress.equals(callerAddress)) {
+            throw new IllegalStateException("Caller: " + callerAddress + " cannot complete job " + jobId
+                    + " execution " + executionId + " because it is not master: " + masterAddress);
+        }
+
         service.completeExecution(executionId, error);
-        getLogger().fine("Completed execution of plan for job " + executionId + ".");
+        logger.fine("Completed execution of plan for job " + jobId + " execution " + + executionId + ".");
     }
 
+    @Override
+    public ExceptionAction onInvocationException(Throwable throwable) {
+        if (throwable instanceof TargetNotMemberException) {
+            return THROW_EXCEPTION;
+        }
+
+        return super.onInvocationException(throwable);
+    }
 
     @Override
     protected void writeInternal(ObjectDataOutput out) throws IOException {
         super.writeInternal(out);
+        out.writeLong(jobId);
         out.writeLong(executionId);
         out.writeObject(error);
     }
@@ -56,6 +84,7 @@ class CompleteOperation extends Operation {
     @Override
     protected void readInternal(ObjectDataInput in) throws IOException {
         super.readInternal(in);
+        jobId = in.readLong();
         executionId = in.readLong();
         error = in.readObject();
     }
